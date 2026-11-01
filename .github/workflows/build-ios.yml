@@ -1,12 +1,23 @@
-
 name: Build Moonlight iOS
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - master
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   build:
+    name: Build unsigned IPA
     runs-on: macos-26
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -14,8 +25,14 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Build iOS app
+      - name: Show build environment
         run: |
+          xcodebuild -version
+          xcodebuild -showsdks
+
+      - name: Build unsigned iOS app
+        run: |
+          set -o pipefail
           xcodebuild \
             -project Moonlight.xcodeproj \
             -scheme Moonlight \
@@ -24,19 +41,44 @@ jobs:
             -destination 'generic/platform=iOS' \
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO \
-            build
+            CODE_SIGNING_REQUIRED=NO \
+            clean build | tee xcodebuild.log
 
-      - name: Package IPA
+      - name: Package and verify IPA
         run: |
-          APP=$(find build/Build/Products/Release-iphoneos \
-            -maxdepth 1 -name '*.app' -type d | head -n 1)
+          set -euo pipefail
+          PRODUCT_DIR="build/Build/Products/Release-iphoneos"
+          APP="$(find "$PRODUCT_DIR" -maxdepth 1 -name '*.app' -type d -print -quit)"
           test -n "$APP"
-          mkdir Payload
-          cp -R "$APP" Payload/
-          zip -qr Moonlight-unsigned.ipa Payload
+          test -f "$APP/Info.plist"
 
-      - name: Upload IPA
+          EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")"
+          test -n "$EXECUTABLE"
+          test -f "$APP/$EXECUTABLE"
+
+          rm -rf Payload Moonlight-unsigned.ipa
+          mkdir Payload
+          ditto "$APP" "Payload/$(basename "$APP")"
+          zip -qry Moonlight-unsigned.ipa Payload
+
+          test -s Moonlight-unsigned.ipa
+          unzip -t Moonlight-unsigned.ipa
+          ls -lh Moonlight-unsigned.ipa
+
+      - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
         with:
           name: Moonlight-iOS-unsigned
           path: Moonlight-unsigned.ipa
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+      - name: Upload Xcode log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Moonlight-iOS-xcodebuild-log
+          path: xcodebuild.log
+          if-no-files-found: ignore
+          retention-days: 7
