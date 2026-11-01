@@ -35,8 +35,8 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Download ${{ matrix.platform }} platform
-        run: xcodebuild -downloadPlatform ${{ matrix.platform }}
+      - name: Verify ${{ matrix.platform }} SDK
+        run: xcrun --sdk ${{ matrix.sdk }} --show-sdk-path
 
       - name: Build Debug
         run: xcodebuild -project Moonlight.xcodeproj -scheme "${{ matrix.scheme }}" -configuration Debug -sdk ${{ matrix.sdk }} clean build
