@@ -1,0 +1,42 @@
+
+name: Build Moonlight iOS
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-26
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build iOS app
+        run: |
+          xcodebuild \
+            -project Moonlight.xcodeproj \
+            -scheme Moonlight \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Package IPA
+        run: |
+          APP=$(find build/Build/Products/Release-iphoneos \
+            -maxdepth 1 -name '*.app' -type d | head -n 1)
+          test -n "$APP"
+          mkdir Payload
+          cp -R "$APP" Payload/
+          zip -qr Moonlight-unsigned.ipa Payload
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Moonlight-iOS-unsigned
+          path: Moonlight-unsigned.ipa
